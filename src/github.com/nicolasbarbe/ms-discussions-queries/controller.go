@@ -11,6 +11,7 @@ import (
         "strconv"
         "io/ioutil"
         "time"
+        "math/rand"
         "fmt"
         "log"
 )
@@ -20,7 +21,7 @@ import (
 
 // Discussion representation used in the event body
 type NormalizedDiscussion struct {
-  Id            bson.ObjectId     `json:"id"            bson:"_id,omitempty"`
+  Id            string            `json:"id"            bson:"_id"`
   Title         string            `json:"title"         bson:"title"`
   Description   string            `json:"description"   bson:"description"`
   Initiator     string            `json:"initiator"     bson:"initiator"`
@@ -28,11 +29,14 @@ type NormalizedDiscussion struct {
 }
 
 type DenormalizedDiscussion struct {
-  Id            bson.ObjectId     `json:"id"            bson:"_id,omitempty"`
+  Id            string            `json:"id"            bson:"_id"`
   Title         string            `json:"title"         bson:"title"`
   Description   string            `json:"description"   bson:"description"`
   Initiator     string            `json:"initiator"     bson:"initiator"`
   CreatedAt     time.Time         `json:"createdAt"     bson:"createdAt"`
+  Answers       []string          `json:"answers"       bson:"answers"`
+  Up            int               `json:"up"            bson:"up"`
+  Views         int               `json:"views"         bson:"views"`
 }
 
 type DenormalizedUser struct {
@@ -42,6 +46,13 @@ type DenormalizedUser struct {
   MemberSince   time.Time         `json:"memberSince"   bson:"memberSince"`
 }
 
+type NormalizedAnswer struct {
+  Id            string             `json:"id"            bson:"_id"`
+  Content       string             `json:"content"       bson:"content"`
+  Author        string             `json:"author"        bson:"author"`
+  CreatedAt     time.Time          `json:"createdAt"     bson:"createdAt"`
+  Discussion    string             `json:"discussion"    bson:"discussion"`
+}
 
 // Controller embeds the logic of the microservice
 type Controller struct {
@@ -60,7 +71,7 @@ func (this *Controller) ListDiscussions(response http.ResponseWriter, request *h
 
 func (this *Controller) ShowDiscussion(response http.ResponseWriter, request *http.Request, params httprouter.Params ) {
   var discussion DenormalizedDiscussion
-  if err := this.mongo.C(discussionsCollection).FindId(bson.ObjectIdHex(params.ByName("id"))).One(&discussion) ; err != nil {
+  if err := this.mongo.C(discussionsCollection).FindId(params.ByName("id")).One(&discussion) ; err != nil {
     this.renderer.JSON(response, http.StatusNotFound, "Discussion not found")
     return
   }
@@ -99,11 +110,36 @@ func (this *Controller) ConsumeDiscussions(message []byte) {
    Description   : normalizedDiscussion.Description,
    Initiator     : fmt.Sprintf("%v %v", user.FirstName, user.LastName), 
    CreatedAt     : normalizedDiscussion.CreatedAt, 
+   Up            : rand.Intn(100),
+   Views         : rand.Intn(3000),
   }
 
   // save discussion
   if err := this.mongo.C(discussionsCollection).Insert(denormalizedDiscussion) ; err != nil {
     log.Printf("Cannot save document in collection %s : %s", discussionsCollection, err)
+    return
+  }
+}
+
+func (this *Controller) ConsumeAnswers(message []byte) {
+  idx, _    := strconv.Atoi(string(message[:2]))
+  eventType := string(message[2:idx+2])
+  body      := message[idx+2:]
+
+  if eventType != answerPosted {
+    log.Printf("Message with type %v is ignored. Type %v was expected", eventType, answerPosted)
+    return
+  }
+
+  // unmarshal answer from event body
+  var normalizedAnswer NormalizedAnswer
+  if err := json.Unmarshal(body, &normalizedAnswer); err != nil {
+    log.Print("Cannot unmarshal answer")
+    return
+  }
+
+  if err := this.mongo.C(discussionsCollection).Update(bson.M{"_id": normalizedAnswer.Discussion}, bson.M{"$addToSet": bson.M{"answers": normalizedAnswer.Id}}) ; err != nil {
+    log.Printf("Cannot update document in collection %s : %s", discussionsCollection, err)
     return
   }
 }

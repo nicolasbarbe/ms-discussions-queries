@@ -14,6 +14,10 @@ import (
 /** Constants **/
 
 const (
+  answersCollection     = "answers"
+  answersTopic          = "answers"
+  answerPosted          = "AnswerPosted"
+
   discussionsCollection = "discussions"
   discussionsTopic      = "discussions"
   discussionStarted     = "DiscussionStarted"
@@ -64,6 +68,9 @@ func main() {
     // listen to the creation of new discussions
   discussionsConsumer := kafka.NewConsumer(brokers, discussionsTopic)
   discussionsConsumer.Consume(controller.ConsumeDiscussions )
+
+  answersConsumer := kafka.NewConsumer(brokers, answersTopic)
+  answersConsumer.Consume(controller.ConsumeAnswers )
 
   log.Println("Initializing routes...")
 
